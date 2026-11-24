@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-from backup_release import prepare, verify, check_assets, sha256, upload
+from backup_release import prepare, verify, check_assets, sha256, upload, find_release
 
 
 class BackupTests(unittest.TestCase):
@@ -68,6 +68,8 @@ class BackupTests(unittest.TestCase):
             if method=='PATCH':
                 state['release'].update(payload)
                 return copy.deepcopy(state['release'])
+            if '/releases?' in endpoint:
+                return [copy.deepcopy(state['release'])] if state['release'] is not None else []
             if state['release'] is None:
                 raise subprocess.CalledProcessError(1,['gh','api'],stderr='HTTP 404')
             return copy.deepcopy(state['release'])
@@ -85,6 +87,30 @@ class BackupTests(unittest.TestCase):
             upload(self.archive,'backup-fixture')
         self.assertFalse(state['release']['draft'])
         self.assertEqual(state['uploads'].count(self.archive.name),1)
+
+    def test_existing_fully_uploaded_draft_publishes_without_reupload(self):
+        _, files = prepare(self.archive)
+        release = dict(id=456,tag_name='backup-fixture',draft=True,
+                       body='Backup manifest SHA256: '+sha256(files[-2]),
+                       html_url='https://example.invalid/finished',
+                       assets=[dict(name=p.name,state='uploaded',size=p.stat().st_size,digest='sha256:'+sha256(p)) for p in files])
+        def api(endpoint,method='GET',payload=None):
+            if endpoint.endswith('auv_traj_exp_Two_Phase'): return {'permissions':{'push':True}}
+            if '/releases/tags/' in endpoint:
+                raise subprocess.CalledProcessError(1,['gh','api'],stderr='gh: Not Found (HTTP 404)')
+            if '/releases?' in endpoint: return [copy.deepcopy(release)]
+            if method=='PATCH': release.update(payload)
+            elif method!='GET': raise AssertionError('Existing draft must not be recreated')
+            return copy.deepcopy(release)
+        with patch('backup_release.shutil.which',return_value='gh'), patch('backup_release.gh_api',side_effect=api), patch('backup_release.subprocess.run',side_effect=AssertionError('No reupload expected')):
+            upload(self.archive,'backup-fixture')
+        self.assertFalse(release['draft'])
+
+    def test_draft_lookup_paginates(self):
+        first=[dict(tag_name='other-'+str(i)) for i in range(100)]
+        target=dict(tag_name='backup-fixture',draft=True,id=1)
+        with patch('backup_release.gh_api',side_effect=[first,[target]]):
+            self.assertEqual(find_release('backup-fixture'),target)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

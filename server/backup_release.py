@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import sys
-from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = 'EvaWang007/auv_traj_exp_Two_Phase'
@@ -77,6 +76,17 @@ def gh_api(endpoint, method='GET', payload=None):
     return json.loads(result.stdout)
 
 
+def find_release(tag):
+    """The by-tag endpoint is for published releases; list also includes owned drafts."""
+    page = 1
+    while True:
+        releases = gh_api(f'repos/{REPOSITORY}/releases?per_page=100&page={page}')
+        for release in releases:
+            if release.get('tag_name') == tag: return release
+        if len(releases) < 100: return None
+        page += 1
+
+
 def check_assets(release, files):
     remote = {a['name']: a for a in release.get('assets', [])}
     missing = []
@@ -100,29 +110,28 @@ def upload(archive, tag=None):
     if len(files)>1000: raise ValueError('Too many release assets.')
     tag = tag or 'backup-'+archive.name.removesuffix('.tar.gz')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', tag): raise ValueError('Use a simple alphanumeric release tag.')
-    endpoint = 'repos/'+REPOSITORY+'/releases/tags/'+quote(tag, safe='')
     marker = 'Backup manifest SHA256: '+sha256(files[-2])
     print(f'Public destination: {REPOSITORY}, release {tag}', flush=True)
     print(f'Backup: {archive} ({manifest["archive_bytes"]:,} bytes); upload assets: {len(files)}', flush=True)
-    try:
-        release = gh_api(endpoint)
-    except subprocess.CalledProcessError as exc:
-        if '404' not in (exc.stderr or ''): raise
+    release = find_release(tag)
+    if release is None:
         release = gh_api('repos/'+REPOSITORY+'/releases', 'POST', dict(
             tag_name=tag, target_commitish='main', name='Training backup: '+archive.name,
             body='Owner-requested public backup of completed training.\n\n'+marker+
                  '\n\nDownload all assets and run server/backup_release.py verify --folder DOWNLOAD_DIRECTORY. '
                  'The archived code/provenance records the training version; this release tag records the upload.\n',
             draft=True))
-    if marker not in release.get('body', ''):
+    if marker not in (release.get('body') or ''):
         raise RuntimeError('This tag belongs to another snapshot; choose a new --tag.')
     missing = check_assets(release, files)
+    print(f'Verified existing assets: {len(files)-len(missing)}; pending uploads: {len(missing)}', flush=True)
     if missing and not release['draft']:
         raise RuntimeError('Existing published release is incomplete/different. Use a new --tag; it will not be overwritten.')
     for path in missing:
         print('Uploading '+path.name, flush=True)
         subprocess.run(['gh', 'release', 'upload', tag, str(path), '--repo', REPOSITORY], check=True)
-    release = gh_api(endpoint)
+    # Retain the draft's ID rather than asking the published-only by-tag endpoint.
+    release = gh_api('repos/'+REPOSITORY+'/releases/'+str(release['id']))
     if check_assets(release, files): raise RuntimeError('Not all expected assets are present; release remains draft.')
     if release['draft']:
         release = gh_api('repos/'+REPOSITORY+'/releases/'+str(release['id']), 'PATCH', dict(draft=False))
