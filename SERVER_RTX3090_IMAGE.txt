@@ -28,8 +28,14 @@ setup_image.sh创建 .venv-image，继承镜像torch，单独安装项目直接�
 预期Python3.12、torch2.8.0（可有+cu128后缀）、torch.version.cuda为12.8、CUDA可用。
 若镜像实际导入的版本不同，脚本停止并显示实际值；不静默改包或转CPU。
 
-3. 上传私有数据
-仓库只有代码配置。使用平台文件管理器或SSH/SFTP，上传本地这两个文件至数据盘：
+3. 下载训练数据或使用本地上传备选方式
+更新：用户随后同意公开训练包，现可直接通过GitHub的training-data分支下载：
+  apt-get update && apt-get install -y git-lfs
+  bash server/download_data.sh
+  python server/import_data.py --archive ../training_assets/auv_twophase_gpu_phase1_30ep.tar.gz
+以上方式不需要手动上传。下面保留原本从本地上传的备选方式。
+
+main分支仍只含代码配置。若不使用公开数据分支，也可通过平台文件管理器或SSH/SFTP上传本地这两个文件至数据盘：
   auv_twophase_gpu_phase1_30ep.tar.gz
   auv_twophase_gpu_phase1_30ep.tar.gz.sha256
 它们可位于代码目录上一级。包约621MB，不需要放进GitHub，也不要覆盖新克隆的源码。

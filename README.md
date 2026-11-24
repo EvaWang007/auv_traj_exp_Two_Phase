@@ -1,7 +1,8 @@
 # NOAA Two-Phase AUV Trajectory Prediction
 
-本公开仓库按用户指定，**仅保存代码、配置和说明**。
-训练数据、历史实验结果、预测数组和模型检查点保留在本地，不随此次提交上传。
+`main` 分支保存代码、配置和说明。
+用户随后明确同意公开训练包，现通过独立 `training-data` 分支和Git LFS提供训练包及校验文件。
+历史实验结果、预测数组和模型检查点仍保留在本地，没有上传。
 NOAA 海流来自真实观测；AUV 航迹、机载测量和控制记录为仿真。
 
 ## 正式训练配置
@@ -26,17 +27,19 @@ git clone https://github.com/EvaWang007/auv_traj_exp_Two_Phase.git
 cd auv_traj_exp_Two_Phase
 ```
 
-单独上传此前交付的 `auv_twophase_gpu_phase1_30ep.tar.gz` 训练包及 `.sha256` 文件到服务器。
-例如将它们放在本仓库目录的上一级，然后执行：
+现在可以从GitHub拉取公开训练包，无需手动从本地上传。Ubuntu先安装Git LFS，再执行：
 
 ```bash
-# 只导入归档中的data文件，检查清单的SHA256；不覆盖已存在且不同的数据。
-python server/import_data.py --archive ../auv_twophase_gpu_phase1_30ep.tar.gz
+apt-get update && apt-get install -y git-lfs
+bash server/download_data.sh
+python server/import_data.py --archive ../training_assets/auv_twophase_gpu_phase1_30ep.tar.gz
 ```
 
-也可通过SSH/SFTP把本地完整 `data/` 目录复制到本仓库根目录。
-数据清单：[server/data_manifest.json](server/data_manifest.json)；清单只有大小和校验值，没有数据内容。
-当前约1.46GB数据不会通过 `git clone` 下载，GitHub上也未公开它们。
+没有管理员权限时使用镜像中已有Git LFS，或请平台安装。下载脚本不切换当前main分支，默认将约621MB压缩包保存到仓库同级的training_assets/，并校验SHA256。
+导入器只提取16个data文件，不使用归档内旧代码覆盖当前代码。
+数据清单：[server/data_manifest.json](server/data_manifest.json)。解包数据约1.46GB。
+普通main分支的git clone仍不会自动下载训练包，须执行上述下载步骤。
+也可以继续使用原本的本地训练包或通过SSH/SFTP复制data/。
 
 ## 配置与启动服务器
 
@@ -91,7 +94,7 @@ python server/sync_results.py --run results/formal_phase1_30ep_seed42 --checkpoi
 ```
 
 数组也必须显式加 `--arrays`。大数组和检查点按 `.gitattributes` 用LFS保存；
-其存储、下载会占用仓库所有者的额度。初次代码提交没有上传任何LFS数据。
+其存储、下载会占用仓库所有者的额度。公开训练包已占用相应LFS存储，下载也消耗LFS带宽。
 同步脚本只处理指定的 `results/` 子目录；已有暂存改动时停止，避免混入其他工作。
 它不会强制推送或自动解决远程冲突。推送被拒绝时，本地提交仍保留，检查合并后再推送。
 多服务器可使用不同分支，如 `git switch -c runs/server-a-seed42`。
