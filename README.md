@@ -61,6 +61,11 @@ tail -f phase1_launcher.log
 
 ## 训练后主动保存结果
 
+完整.tar.gz备份上传与本机下载：见 [SERVER_BACKUP_RELEASE.txt](SERVER_BACKUP_RELEASE.txt)。
+`python server/backup_release.py upload`将服务器备份上传为公开Release附件，自动处理大文件分片；
+下载后用同一脚本的verify命令校验/合并。该操作需在拥有备份的服务器上登录gh后执行。
+完整备份附件不随git pull下载，也不会自动加入main历史。
+
 `data/`、`results/`、`inspection/`默认忽略，不会因一般的 `git add .` 公开上传。
 训练脚本不会自动推送任何结果。仅当你主动执行以下命令时，才会提交所选实验文件。
 

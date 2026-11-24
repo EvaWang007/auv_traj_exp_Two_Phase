@@ -1,0 +1,76 @@
+将服务器完整训练备份上传至本仓库GitHub Release，再下载到本机分析
+
+目标：https://github.com/EvaWang007/auv_traj_exp_Two_Phase/releases
+该仓库是公开仓库；上传的备份、数据、模型、配置也会公开。
+此方式把备份放在Release附件中，不写入main的Git历史，也不使用Git LFS保存这份备份。
+git pull只更新代码；Release附件需要另行下载。
+
+1. 在已完成训练、已完成打包的服务器操作
+备份应位于此前指定的目录：
+  /root/autodl-tmp/auv_backups/twophase_full_*.tar.gz
+若路径不同，上传时使用 --archive 指定实际文件。
+
+  cd /root/autodl-tmp/auv_traj_exp_Two_Phase
+  git pull --ff-only
+  apt-get update && apt-get install -y gh
+  gh auth login --hostname github.com --git-protocol https --web
+
+按终端提示，在本机浏览器用有写权限的账号（通常EvaWang007）完成GitHub授权。
+不需要把token、密码或私钥发给聊天助手。gh登录凭据不应放入项目备份中。
+确认账号：
+  gh auth status
+
+2. 预览备份打包信息（不上传）
+自动选 /root/autodl-tmp/auv_backups 中最新的twophase_full_*.tar.gz：
+  python server/backup_release.py prepare
+会计算SHA256、生成backup_manifest.json和SHA256SUMS。
+备份达到2GiB时，额外生成1GiB分片，不删除原备份；分片会额外占用磁盘空间。
+
+3. 执行上传
+  python -u server/backup_release.py upload
+
+指定备份文件时：
+  python -u server/backup_release.py upload --archive /root/autodl-tmp/auv_backups/实际备份文件.tar.gz
+
+脚本会：
+  - 检查gh账号对目标仓库有写权限。
+  - 以备份文件名生成独立标签 backup-twophase_full_时间戳。
+  - 创建草稿Release，逐个上传备份或分片、backup_manifest.json、SHA256SUMS。
+  - 检查全部远程附件大小，远程提供digest时也比较SHA256。
+  - 全部成功后发布Release，打印UPLOAD COMPLETE链接和RELEASE_TAG。
+标签代表上传时main的状态；训练版本以归档内部代码、provenance和export/code_commit.txt为准。
+
+网络失败时可重跑同一上传命令。已完整上传且符合检查的附件会跳过。
+这是按附件恢复，不保证从一个失败附件中间的字节续传。
+未上传完成前Release保留草稿；已有同名但不完整/不同的附件时不覆盖删除。
+若出现这种情况，可通过Release网页删除仅失败的那个附件后重试，或用新--tag上传。
+不要修改正在上传的备份文件。
+
+4. 在本机下载
+打开UPLOAD COMPLETE输出的Release网页，下载：
+  - 完整.tar.gz，或全部.part0000/.part0001...分片；
+  - backup_manifest.json；
+  - SHA256SUMS。
+将同一次Release的全部附件放到一个独立本地目录，例如D:\AUV_Backup\run1。
+
+如果本机已有GitHub CLI，也可以：
+  gh release download 实际RELEASE_TAG --repo EvaWang007/auv_traj_exp_Two_Phase --dir D:\AUV_Backup\run1
+
+5. 校验并合并
+本机进入TwoPhase代码目录并更新：
+  git pull --ff-only
+  python server/backup_release.py verify --folder D:\AUV_Backup\run1
+
+verify只依赖Python标准库，不需要本机有CUDA或PyTorch。
+它校验每个附件；分片会自动合并；最后检查完整备份SHA256。
+出现VERIFIED: 完整文件路径后，再用tar/7-Zip解压至独立分析目录。
+不要直接解压覆盖本机现有项目，避免混淆不同实验。
+
+完整备份内的数据和scaler保留原样。训练曲线来自各模型training_history.csv；
+归一化参数来自scalers.npz；分析前以归档中的run.json和provenance辨认实验版本。
+
+官方参考：
+https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases
+https://cli.github.com/manual/gh_auth_login
+https://cli.github.com/manual/gh_release_upload
+https://cli.github.com/manual/gh_release_download
