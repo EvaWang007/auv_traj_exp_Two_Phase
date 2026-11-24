@@ -14,7 +14,7 @@ export MPLBACKEND=Agg
 mkdir -p "$OUTPUT_DIR/logs"
 exec 9>"$OUTPUT_DIR/.launch.lock"
 flock -n 9 || { echo 'Another launcher is already using this output directory.' >&2; exit 1; }
-"$PYTHON_BIN" -c 'import sys,torch; assert sys.version_info[:2]==(3,10),"Activate Python 3.10 GPU environment"; assert torch.__version__.split("+")[0]=="2.7.1" and torch.version.cuda=="11.8","Expected PyTorch 2.7.1 + cu118"; assert torch.cuda.is_available(),"CUDA unavailable"'
+"$PYTHON_BIN" server/check_runtime.py
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 nvidia-smi > "$OUTPUT_DIR/logs/nvidia-smi-$STAMP.txt"
 "$PYTHON_BIN" -m pip freeze > "$OUTPUT_DIR/logs/pip-freeze-$STAMP.txt"

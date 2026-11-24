@@ -25,7 +25,7 @@ def main():
     inventory={p.name:dict(bytes=p.stat().st_size,sha256=sha256(p)) for p in sorted((ROOT/'data').iterdir()) if p.is_file()}
     (ROOT/'server/data_manifest.json').write_text(json.dumps(inventory,indent=2),encoding='utf-8')
     names=['formal_phase1.py','formal_phase1_evaluate.py','phase1_model.py','train_phase1.py','prepare_phase1.py',
-           'routes.py','phase2_control.py','run_phase2.py','verify_phase2.py','README.txt','SERVER_PHASE1_30EP.txt',
+           'routes.py','phase2_control.py','run_phase2.py','verify_phase2.py','README.txt','README.md','SERVER_PHASE1_30EP.txt','SERVER_RTX3090_IMAGE.txt',
            'TRAINING_SPEC_REVIEW.txt','training_data_inventory.json']
     paths=[ROOT/name for name in names]
     paths += [p for p in sorted((ROOT/'server').iterdir()) if p.is_file() and p.suffix in ['.py','.sh','.json','.txt','.yml']]

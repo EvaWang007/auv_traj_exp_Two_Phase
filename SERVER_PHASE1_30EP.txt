@@ -1,6 +1,10 @@
 Ubuntu 22.04 / GPU：第一阶段三模型各30 epoch，直接运行说明
 版本：2026-11-24。本次只准备代码与安装包，未启动本地正式训练。
 
+当前租用镜像已确认为Python3.12/PyTorch2.8.0/CUDA12.8/RTX3090，
+请优先按 SERVER_RTX3090_IMAGE.txt 使用 setup_image.sh，复用镜像GPU环境。
+下述Python3.10/cu118安装步骤仅适用于旧环境；新启动器同时接受这两套已声明的运行时。
+
 1. 本次已经固定的内容
 
 最终 LSTM：30 epoch；最终 CPI-LSTM：30 epoch；最终 PSO-CPI-LSTM：30 epoch。

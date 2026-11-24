@@ -8,7 +8,8 @@ NOAA 海流来自真实观测；AUV 航迹、机载测量和控制记录为仿�
 
 | 项目 | 配置 |
 |---|---|
-| 系统与环境 | Ubuntu 22.04、Python 3.10、PyTorch 2.7.1 + CUDA 11.8 |
+| 当前服务器镜像 | Ubuntu 22.04、Python 3.12、PyTorch 2.8.0 + CUDA 12.8、RTX 3090 24GB |
+| 兼容旧环境 | Python 3.10、PyTorch 2.7.1 + CUDA 11.8 |
 | 最终模型 | LSTM、CPI-LSTM、PSO-CPI-LSTM，各从头训练 30 epoch |
 | 数据划分 | 700/100/200 条训练/验证/测试任务，91,000/13,000/26,000 个窗口 |
 | 历史与预测 | 120 步历史、80 步未来计划，采样周期 0.2 秒 |
@@ -39,15 +40,18 @@ python server/import_data.py --archive ../auv_twophase_gpu_phase1_30ep.tar.gz
 
 ## 配置与启动服务器
 
+当前租用镜像直接复用已有PyTorch/CUDA，在项目目录的独立venv内安装直接依赖：
+
 ```bash
-source "$(conda info --base)/etc/profile.d/conda.sh"
-bash server/setup_env.sh
-conda activate auv_traj_gpu
+bash server/setup_image.sh
+source .venv-image/bin/activate
 nohup bash server/run_phase1.sh > phase1_launcher.log 2>&1 &
 tail -f phase1_launcher.log
 ```
 
-完整步骤、预算、恢复与输出位置见 [SERVER_PHASE1_30EP.txt](SERVER_PHASE1_30EP.txt)。
+当前镜像逐步操作见 [SERVER_RTX3090_IMAGE.txt](SERVER_RTX3090_IMAGE.txt)。
+训练预算、恢复与输出说明见 [SERVER_PHASE1_30EP.txt](SERVER_PHASE1_30EP.txt)。
+旧Python3.10/cu118环境仍可使用setup_env.sh；当前3.12/cu128镜像使用setup_image.sh。
 配置：[server/phase1_30ep.json](server/phase1_30ep.json)。
 中断后重跑同一启动命令，从已完成epoch恢复；不要修改正在恢复的代码、数据或配置。
 启动预检验证数据SHA256及实际CUDA前向/反向，通过后才进入正式训练。

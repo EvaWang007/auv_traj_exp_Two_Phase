@@ -1,7 +1,9 @@
 NOAA Two-phase CPI-LSTM: phase-one offline pretraining
 
 2026-11-24 formal GPU release: read SERVER_PHASE1_30EP.txt first.
-New entry: bash server/run_phase1.sh (Ubuntu / PyTorch 2.7.1+cu118).
+New entry: bash server/run_phase1.sh (Ubuntu; current image 2.8.0+cu128/Python3.12,
+legacy 2.7.1+cu118/Python3.10 also accepted). Current-image instructions:
+SERVER_RTX3090_IMAGE.txt and bash server/setup_image.sh.
 LSTM, CPI-LSTM, PSO-CPI-LSTM each train 30 final epochs; resumable PSO search
 and frozen evaluation are included. Historical scripts below remain CPU-only.
 SERVER_TRAINING.txt describes the older CPU migration path, not the new launcher.

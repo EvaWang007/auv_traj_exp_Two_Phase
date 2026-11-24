@@ -1,0 +1,92 @@
+当前租用服务器：RTX3090 / Ubuntu22.04 / Python3.12 / torch2.8.0 / CUDA12.8
+日期：2026-11-24。GPU24GB、CPU15vCPU、RAM90GB、数据盘50GB。
+
+1. 放置路径
+先执行 df -hT，确认实际数据盘挂载路径。
+以下以常见路径 /root/autodl-tmp 为例；若实际不同，替换此路径。
+不要把数据和长期结果放到临时缓存目录。不要在未备份结果时释放实例。
+
+  nvidia-smi
+  df -hT
+  cd /root/autodl-tmp
+  git clone https://github.com/EvaWang007/auv_traj_exp_Two_Phase.git
+  cd auv_traj_exp_Two_Phase
+
+如果代码已克隆且尚未启动训练，只需在该目录 git pull --ff-only。
+运行中不要更新代码或配置，否则后续恢复签名可能不一致。
+
+2. 使用镜像GPU环境
+无需降级Python或重装PyTorch/CUDA，也无需再次下载cu118运行库。
+setup_image.sh创建 .venv-image，继承镜像torch，单独安装项目直接依赖，避免修改镜像全局包。
+这是包含system-site-packages的venv；项目用到的numpy/pandas/matplotlib版本在venv内固定。
+不用执行旧 setup_env.sh 或 conda activate auv_traj_gpu。
+
+  python -c "import sys,torch; print(sys.version); print(torch.__version__,torch.version.cuda,torch.cuda.is_available())"
+  bash server/setup_image.sh
+  source .venv-image/bin/activate
+
+预期Python3.12、torch2.8.0（可有+cu128后缀）、torch.version.cuda为12.8、CUDA可用。
+若镜像实际导入的版本不同，脚本停止并显示实际值；不静默改包或转CPU。
+
+3. 上传私有数据
+仓库只有代码配置。使用平台文件管理器或SSH/SFTP，上传本地这两个文件至数据盘：
+  auv_twophase_gpu_phase1_30ep.tar.gz
+  auv_twophase_gpu_phase1_30ep.tar.gz.sha256
+它们可位于代码目录上一级。包约621MB，不需要放进GitHub，也不要覆盖新克隆的源码。
+
+  python server/import_data.py --archive ../auv_twophase_gpu_phase1_30ep.tar.gz
+
+导入器仅提取data中的16个文件、检查SHA256，不覆盖不同内容的已有数据，也不导入旧代码。
+原始数据解包后约1.46GB。训练数据不因训练被改写。
+
+4. 先预检，不开始正式训练
+
+  python -u formal_phase1.py --mode preflight --device cuda
+
+该步骤检查数据与GPU前向/反向，不执行优化器更新。确认出现preflight PASSED。
+本机开发环境没有CUDA，不能把本地测试等同于这台服务器的GPU验收。
+
+5. 后台正式训练
+
+  nohup bash server/run_phase1.sh > phase1_launcher.log 2>&1 &
+  tail -f phase1_launcher.log
+
+Ctrl+C只会退出tail，不会停止nohup训练。不要重复启动；目录锁会阻止重复进程。
+顺序：LSTM30轮→CPI30轮→PSO搜索→PSO-CPI30轮→冻结测试与出图。
+PSO默认另做6粒子×4迭代，每个候选在20000/4000训练/验证子集上训练5轮。
+此搜索是额外预算；正式模型各训练30轮，且不早停。模型选择仅使用验证集。
+
+6. 日志与恢复
+
+  tail -f results/formal_phase1_30ep_seed42/logs/train.log
+  cat results/formal_phase1_30ep_seed42/training_status.json
+  watch -n 2 nvidia-smi
+
+终端断开不会停止nohup任务；实例关机、进程崩溃则会停止。
+重新开机后进入相同目录，激活 .venv-image，并重跑 run_phase1.sh。
+按完整epoch恢复，未完成的epoch会重做；保留last.pt、scalers和运行元数据。
+不要在恢复途中更换镜像/torch/数据/配置，尽量保持相同设备软件环境。
+当前不使用TensorBoard或WebUI，不需要6006/6008等HTTP端口映射。
+
+7. 保存并下载结果
+结果自动保存在数据盘代码目录下 results/formal_phase1_30ep_seed42/。
+best.pt为验证最优；final.pt为第30轮；last.pt含优化器/RNG等恢复状态。
+test/下保存指标CSV、预测NPZ、轨迹对比和指标图、冻结检查点及验证报告。
+训练完成后，在代码根目录执行：
+
+  tar -czf ../phase1_30ep_results_seed42.tar.gz -C results formal_phase1_30ep_seed42
+  cd ..
+  sha256sum phase1_30ep_results_seed42.tar.gz > phase1_30ep_results_seed42.tar.gz.sha256
+
+使用服务器文件管理器或SFTP下载这两个结果文件到本地，确认下载完成及校验一致后再释放实例。
+最好在训练停止或完成后打包；训练中打包不保证last.pt与其他运行元数据属于同一epoch。
+原始数据仍保留本地最初上传的训练包即可；如后续新增第二阶段数据，再单独备份新增内容。
+当前公开GitHub继续只保存代码和配置，不自动上传训练数据、权重或结果。
+若日后决定公开部分结果，先运行sync_results.py预览，明确选择后再push。
+
+8. 费用理解
+按给定单价，费用约为 1.56 × 实例计费小时数（元），以平台实际账单为准。
+尚未在该GPU实测，不承诺总耗时。可依据首轮日志elapsed_s估算，并另计PSO、测试与准备时间。
+模型本身较小，GPU利用率可能受CPU数据加载与物理积分影响，不应据显存未占满判断出错。
+结束训练不等于停止计费；备份确认后按平台规则关闭或释放实例。
+第二阶段不在本启动命令中自动执行。
