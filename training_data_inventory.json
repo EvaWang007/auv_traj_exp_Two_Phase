@@ -1,0 +1,174 @@
+{
+  "arrays": {
+    "bias": {
+      "shape": [
+        130000,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 1040000
+    },
+    "current": {
+      "shape": [
+        130000,
+        80,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 83200000
+    },
+    "DR_start": {
+      "shape": [
+        130000,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 1040000
+    },
+    "history": {
+      "shape": [
+        130000,
+        120,
+        16
+      ],
+      "dtype": "float32",
+      "bytes": 998400000
+    },
+    "last_fix_bias": {
+      "shape": [
+        130000,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 1040000
+    },
+    "last_fix_current": {
+      "shape": [
+        130000,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 1040000
+    },
+    "outage_age": {
+      "shape": [
+        130000
+      ],
+      "dtype": "float32",
+      "bytes": 520000
+    },
+    "plan": {
+      "shape": [
+        130000,
+        80,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 83200000
+    },
+    "position": {
+      "shape": [
+        130000,
+        80,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 83200000
+    },
+    "velocity": {
+      "shape": [
+        130000,
+        80,
+        2
+      ],
+      "dtype": "float32",
+      "bytes": 83200000
+    },
+    "water_state": {
+      "shape": [
+        130000,
+        3
+      ],
+      "dtype": "float32",
+      "bytes": 1560000
+    }
+  },
+  "normal_records": {
+    "data": {
+      "shape": [
+        1000,
+        1500,
+        16
+      ],
+      "dtype": "float32"
+    },
+    "true_water_state": {
+      "shape": [
+        1000,
+        1500,
+        3
+      ],
+      "dtype": "float32"
+    },
+    "reliable_fix_xy": {
+      "shape": [
+        1000,
+        1500,
+        2
+      ],
+      "dtype": "float32"
+    },
+    "initial_world_xy": {
+      "shape": [
+        1000,
+        2
+      ],
+      "dtype": "float64"
+    },
+    "launch_unix_s": {
+      "shape": [
+        1000
+      ],
+      "dtype": "float64"
+    },
+    "split_train": {
+      "shape": [
+        700
+      ],
+      "dtype": "int32"
+    },
+    "split_val": {
+      "shape": [
+        100
+      ],
+      "dtype": "int32"
+    },
+    "split_test": {
+      "shape": [
+        200
+      ],
+      "dtype": "int32"
+    }
+  },
+  "actual_mode_counts": {
+    "test": {
+      "normal": 6514,
+      "outage_16_60s": 7373,
+      "outage_2_16s": 6481,
+      "outage_60_180s": 5632
+    },
+    "train": {
+      "normal": 22964,
+      "outage_16_60s": 25900,
+      "outage_2_16s": 22773,
+      "outage_60_180s": 19363
+    },
+    "val": {
+      "normal": 3162,
+      "outage_16_60s": 3792,
+      "outage_2_16s": 3299,
+      "outage_60_180s": 2747
+    }
+  },
+  "training_started": false
+}

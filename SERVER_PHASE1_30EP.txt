@@ -1,0 +1,193 @@
+Ubuntu 22.04 / GPU：第一阶段三模型各30 epoch，直接运行说明
+版本：2026-11-24。本次只准备代码与安装包，未启动本地正式训练。
+
+1. 本次已经固定的内容
+
+最终 LSTM：30 epoch；最终 CPI-LSTM：30 epoch；最终 PSO-CPI-LSTM：30 epoch。
+三个最终模型分别从头初始化，不继续之前5轮/1轮试跑的权重。
+沿用现有NOAA数据、700/100/200任务划分、120步历史、80步未来计划。
+输入、物理模型和原有两类网络结构不变，新增统一的GPU训练入口。
+历史 train_phase1.py 等入口保留，不要把旧CPU入口作为此次GPU启动入口。
+
+单GPU串行运行：LSTM → CPI-LSTM → PSO搜索 → PSO-CPI-LSTM最终30轮 → 统一冻结测试。
+串行执行避免三个模型争抢显存；不是同时挤在一张卡上。
+默认 batch=128、seed=42、梯度裁剪2、Adam；float32，不启用AMP或TF32。
+不早停，三个最终模型都训练满30轮，同时保存各自验证损失最低的best.pt。
+普通LSTM仅位置损失；CPI默认位置+0.1海流+0.2偏差+0.02速度一致性。
+第二阶段此处不自动启动；当前第二阶段仍是CPU实现，仅完整支持CPI结构。
+
+2. 与以前服务器环境保持一致
+
+依据仓库 environment_gpu.yml：
+  Ubuntu 22.04 / Linux x86_64
+  Python 3.10
+  PyTorch 2.7.1 + CUDA 11.8（torch版本应显示2.7.1+cu118）
+  NumPy 1.26.4 / pandas 2.3.3 / matplotlib 3.10.9
+不需要本任务未使用的torchvision、torchaudio、scikit-learn、tqdm。
+若旧GPU环境已存在，setup_env.sh会复用，不重复导入旧导出文件中的系统库和绝对prefix。
+若不存在，会创建同名最小conda环境，安装官方cu118版PyTorch和本项目直接依赖。
+若已存在环境的Python/PyTorch不匹配，脚本停止，不直接覆盖旧环境；可改用新环境名。
+
+使用原先兼容CUDA11.8运行时的GPU镜像/驱动；nvidia-smi必须能正常显示GPU。
+仅凭nvidia-smi顶部显示的CUDA版本，不能判断Python实际加载了哪个PyTorch运行时。
+以torch.__version__、torch.version.cuda和本项目CUDA前向/反向检查为准。
+GPU架构若超出旧cu118构建支持范围，预检会报错，不能用CPU静默替代正式GPU训练。
+资源规划：一张原先可用的NVIDIA GPU，主机内存预留16GB以上、可用磁盘预留20GB以上。
+这是第一阶段的保守规划值，不是已测得的最低配置或训练耗时承诺；第二阶段采集数据另计。
+数据目录当前约1.46GB（十进制），通过mmap读取；测试与搜索另外输出检查点和预测文件。
+
+3. 上传内容
+
+使用交付的 auv_twophase_gpu_phase1_30ep.tar.gz 与同名 .sha256 文件。
+压缩包包含：新GPU入口、必要原模型代码、server/脚本配置、完整data/、说明文件。
+不包含旧results/、旧日志、旧试跑权重；新服务器会重新拟合训练集scaler并从头训练。
+无需上传整个旧仓库，也无需重新生成仿真数据。
+
+以下假设将两个交付文件上传至 ~/auv_runs；可以自行选择实际数据盘路径：
+  mkdir -p ~/auv_runs
+  cd ~/auv_runs
+  sha256sum -c auv_twophase_gpu_phase1_30ep.tar.gz.sha256
+  tar -xzf auv_twophase_gpu_phase1_30ep.tar.gz
+  cd auv_exp_NOAA_TwoPhase_train
+
+4. 配置环境
+
+如果conda尚未初始化，先source实际Miniconda安装位置的etc/profile.d/conda.sh。
+旧环境导出路径为/root/miniconda3/envs/auv_traj_gpu；常见命令是：
+  source /root/miniconda3/etc/profile.d/conda.sh
+  bash server/setup_env.sh
+  conda activate auv_traj_gpu
+
+如果希望独立新建环境，使用：
+  AUV_ENV_NAME=auv_twophase_gpu bash server/setup_env.sh
+  conda activate auv_twophase_gpu
+
+已有正确旧环境时也执行setup_env.sh，可检查直接依赖与实际CUDA计算。
+不要执行仓库旧requirements.txt去覆盖GPU版torch。
+安装命令以官方索引为准：
+  python -m pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu118
+  python -m pip install -r server/requirements-gpu.txt
+  python -m pip check
+setup_env.sh会代为执行必要安装/检查；无需在正常情况下重复执行手动命令。
+
+5. 一条命令启动（前台）
+
+  bash server/run_phase1.sh
+
+该命令依次完成：
+  a. 严格检查Python/PyTorch/CUDA版本和GPU可用性。
+  b. 记录nvidia-smi、pip freeze、PyTorch/CUDA/GPU信息。
+  c. 校验上传数据的全部文件SHA256、shape、dtype、集合隔离和有限值抽样。
+  d. 用训练数据、正式batch size做LSTM和CPI的CUDA前向与反向预检、CPU/GPU前向容差对照，无优化器更新。
+  e. 训练最终三个模型，各30轮；如中断，自动从已完成epoch的last.pt恢复。
+  f. 全部最终训练完成后，按验证最优检查点冻结，再统一测试并出图。
+任何步骤失败都会返回错误，不会在训练失败后继续执行测试。
+
+SSH退出后继续运行，使用nohup：
+  nohup bash server/run_phase1.sh > phase1_launcher.log 2>&1 &
+  tail -f phase1_launcher.log
+
+可见GPU选择（默认物理GPU0）：
+  CUDA_VISIBLE_DEVICES=1 nohup bash server/run_phase1.sh > phase1_launcher_gpu1.log 2>&1 &
+进程内cuda:0对应上述可见GPU。无需为此修改模型代码。
+有tmux时也可以在tmux窗口中运行前台命令；本项目不要求安装tmux。
+
+6. PSO预算必须单独理解
+
+默认正式搜索设置是本次提供的可运行起始配置，不是论文规定或已证明最优的预算：
+  6个粒子 × 4次迭代，共24个候选配置评估；每候选从头训练5个epoch。
+  固定抽样20000个训练窗口、4000个验证窗口，scaler仍仅由完整训练集拟合。
+  搜索lr及海流/偏差/物理损失权重；不搜索架构，不改变位置项系数，不加入smooth项。
+  适应度为候选5轮内最低验证 ADE+0.5*FDE；不使用测试集。
+  选定参数后重新初始化PSO-CPI-LSTM，完整训练30轮。
+因此付费计算量包含：3×30个完整训练epoch + 24×5个子集候选epoch。
+最终checkpoint仍按该模型自身验证损失最低选择，和其他模型保持原选择原则。
+PSO额外搜索计算量必须在实验报告中单列，不能声称三模型总计算预算完全相同。
+
+配置文件：server/phase1_30ep.json。
+如果只想沿用此前小规模搜索得到的参数，复制配置，将pso.mode从search改为fixed：
+  cp server/phase1_30ep.json server/phase1_fixed_pso.json
+编辑新文件的pso.mode="fixed"，其余epochs=30不变，然后使用新输出目录：
+  AUV_CONFIG=server/phase1_fixed_pso.json bash server/run_phase1.sh results/formal_fixed_pso_30ep_seed42
+fixed模式没有执行新的正式PSO搜索，报告中应明确说明参数来自之前一轮试跑。
+默认run_phase1.sh执行search模式，无需修改任何文件即可运行。
+
+7. 断点恢复与重复启动
+
+服务器进程意外中断后，激活相同环境并重跑同一条启动命令：
+  bash server/run_phase1.sh
+
+恢复保存：模型、Adam状态、已完成epoch、最佳模型、Python/NumPy/Torch/CUDA随机状态、
+训练窗口打乱生成器状态，以及PSO粒子位置/速度/个体最优/全局最优/搜索进度。
+恢复粒度是完整epoch：中断epoch会从该epoch起点重做，不是从中断batch精确接续。
+候选已完成但PSO总进度尚未提交时，恢复会读取候选last.pt，不重复训练已完成epoch。
+已完成最终模型不会再次训练；全部完成后重复启动只检查/恢复并重新评估冻结模型。
+写盘使用同目录临时文件和原子替换；保持last.pt、best.pt、scalers.npz及元数据一起保存。
+last.pt内嵌最佳权重，可恢复中断写盘时未同步的派生best.pt。
+同一输出目录有进程锁，阻止同时启动两份训练进程。
+代码、数据、配置改变时拒绝续训，应使用新的输出目录。
+尽量保持相同GPU、驱动、PyTorch和worker设置；跨硬件/软件版本不承诺逐位一致。
+
+8. 输出内容与查看方式
+
+默认输出：results/formal_phase1_30ep_seed42/
+  run.json / provenance/：配置、数据身份、源码、环境信息。
+  scalers.npz / scalers_identity.json：训练集拟合的尺度及其校验值。
+  preflight.json：GPU和数据预检结果，含batch size与预检显存分配峰值。
+  lstm/、cpi_lstm/、pso_cpi_lstm/：
+    last.pt（恢复用）、best.pt（验证最优）、final.pt（第30轮）、training_history.csv、status.json。
+  pso_search/：搜索子集编号、各候选检查点、swarm.pt、search_history.csv、selected.json。
+  training_status.json：当前已完成哪些最终模型。
+  selected_checkpoints.json：三个模型冻结前的选择及SHA256。
+  logs/train.log：逐epoch结果与每100个batch的进度。
+  test/：
+    *_frozen.pt、*_predictions.npz、test_targets.npz、frozen_policy.json；
+    test_metrics.csv、per_window_metrics.csv、horizon_errors.csv；
+    metrics_comparison.png、metrics_by_outage.png、trajectory_comparison.png；
+    training_comparison.png、horizon_and_cdf.png、pso_search.png（search模式）；
+    report_zh.txt、verification.json。
+
+  tail -f results/formal_phase1_30ep_seed42/logs/train.log
+  cat results/formal_phase1_30ep_seed42/training_status.json
+  nvidia-smi
+
+三个最终模型完成之后，如只需重出测试图：
+  bash server/evaluate_phase1.sh
+若此前指定过AUV_CONFIG或自定义输出目录，评估时也使用同一配置与目录。
+
+9. 训练与测试分开执行（可选）
+
+若希望先审阅训练结果，再手动触发最终测试，不使用全流程run_phase1.sh，改用：
+  python -u formal_phase1.py --mode preflight --device cuda
+  python -u formal_phase1.py --mode train --device cuda --resume
+审阅完成后：
+  python -u formal_phase1.py --mode evaluate --device cuda
+
+测试是已有26000个留出窗口上的离线候选计划预测，不是新随机生成航迹测试。
+此前测试集已经暴露；本次按验证选模型且测试不反向参与PSO，但仍应称为配对复测。
+单种子结果不代表统计显著性；窗口重叠，不能把26000个窗口当独立任务。
+ADE与FDE单位m；位置RMSE为二维误差范数的均方根，不是逐坐标RMSE。
+当前第一阶段的训练历史仍来自正常定位控制器；断联控制分布需第二阶段处理。
+
+10. 第二阶段衔接
+
+本交付没有自动开展第二阶段，也没有把旧CPU控制器改成CUDA。
+第一阶段完成后，可选定CPI或PSO-CPI的best.pt，再确定第二阶段方案。
+当前CPU版第二阶段兼容新CPI结构检查点，其scaler包含train_mean_current；例如：
+  python verify_phase2.py --checkpoint results/formal_phase1_30ep_seed42/cpi_lstm/best.pt --output results/formal_phase2/gate
+  python run_phase2.py --initial-checkpoint results/formal_phase1_30ep_seed42/cpi_lstm/best.pt --output results/formal_phase2 --rounds 3 --epochs-per-round 5
+这些命令会真正采集和训练第二阶段，只在你确定后执行。
+普通LSTM不能直接接入当前CPI专用控制器。
+PSO-CPI虽可加载，第二阶段当前会重设lr=0.0001及默认联合损失，不自动继承PSO权重。
+
+11. 验证边界
+
+本机没有CUDA，不能声称已经在目标Ubuntu/GPU环境实跑成功。
+本地执行的是微型合成数据的训练/PSO/评估/恢复生命周期测试，不是本项目正式训练。
+另在真实数据上执行无优化器更新的CPU预检，核验文件、张量和网络反向传播。
+服务器首次启动会强制执行CUDA前向/反向检查，通过后才进入30轮训练。
+
+参考官方安装与确定性文档：
+https://pytorch.org/get-started/previous-versions/ （v2.7.1/cu118）
+https://docs.pytorch.org/docs/stable/generated/torch.nn.LSTM.html
+https://docs.pytorch.org/docs/stable/notes/randomness.html

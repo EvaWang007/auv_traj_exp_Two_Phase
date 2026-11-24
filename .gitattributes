@@ -1,0 +1,13 @@
+* text=auto
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.npy filter=lfs diff=lfs merge=lfs -text
+*.npz filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+# Preserve exact source/data bytes: the startup manifest verifies their SHA256.
+data/** -text
+*.png -text

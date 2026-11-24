@@ -1,0 +1,4 @@
+# PyTorch is installed separately by setup_env.sh using the official cu118 index.
+numpy==1.26.4
+pandas==2.3.3
+matplotlib==3.10.9

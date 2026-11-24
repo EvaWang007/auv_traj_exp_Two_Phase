@@ -1,0 +1,27 @@
+{
+  "seed": 42,
+  "epochs": 30,
+  "models": ["lstm", "cpi_lstm", "pso_cpi_lstm"],
+  "batch_size": 128,
+  "num_workers": 2,
+  "cpu_threads": 4,
+  "gradient_clip": 2.0,
+  "log_every_batches": 100,
+  "checkpoint_selection": "validation_loss",
+  "precision": "float32",
+  "deterministic": true,
+  "default_hparams": {"lr": 0.001, "current": 0.1, "bias": 0.2, "physics": 0.02},
+  "pso": {
+    "mode": "search",
+    "population": 6,
+    "iterations": 4,
+    "candidate_epochs": 5,
+    "train_windows": 20000,
+    "val_windows": 4000,
+    "inertia": 0.5,
+    "cognitive": 1.4,
+    "social": 1.4,
+    "bounds": {"lr": [0.0003, 0.003], "current": [0.05, 0.2], "bias": [0.1, 0.3], "physics": [0.005, 0.05]},
+    "fixed_hparams": {"lr": 0.0021376848499088416, "current": 0.1984988044343665, "bias": 0.21592969774689835, "physics": 0.012228523475416588}
+  }
+}

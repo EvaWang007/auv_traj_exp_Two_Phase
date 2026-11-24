@@ -1,0 +1,54 @@
+TwoPhase 正式训练与迁移说明（2026-11-24）
+
+后续已新增第一阶段30轮GPU入口：请优先阅读 SERVER_PHASE1_30EP.txt。
+以下CPU入口与历史迁移说明保留作参考，不作为新GPU启动方式。
+
+一、迁移范围
+上传整个 auv_exp_NOAA_TwoPhase_train 目录即可，不依赖其他 NOAA 方案目录。
+data/ 保存现有 1000 条仿真轨迹及 130000 个窗口、固定划分和原始 NOAA CSV。
+results/ 保留已有第一阶段检查点、第二阶段中间结果及 LSTM/CPI/PSO 对比实验。
+inspection/ 保存样本解释与演示。历史 provenance/ 是当时的代码快照，不作为新训练入口。
+不要删除 data/source_NOAA.csv。其 SHA256：
+ba3f165e691636105b901afda33e6fd92f0a9c512ad4e4aacc64ff806a75472d
+
+二、服务器环境
+建议使用独立 Python 环境。本机验证环境为 Python 3.10.20、PyTorch 2.12 CPU；
+实际环境版本详见 migration_environment.json。先安装目标平台匹配的 PyTorch，再执行：
+  pip install -r requirements.txt
+该 requirements.txt 列出直接依赖的兼容范围，不是锁定环境。
+
+重要：当前 train_phase1.py、run_phase2.py 仍是 CPU 实现。
+仅安装 CUDA 版 PyTorch不会让这些入口自动使用 GPU。
+若计划租用 GPU，应先完成模型/批次/标准化张量的设备迁移及 CPU/GPU 数值核验。
+这里没有启动正式训练，也没有改动原有损失、模型结构或训练轮数。
+
+三、从头正式训练示例（在本目录内执行）
+现有 data/ 可以直接使用，无需重新生成。示例轮数可按正式方案调整。
+  python train_phase1.py --epochs 20 --output results/formal_phase1_seed42
+训练入口拒绝覆盖已有目录。它会选取验证总损失最低的检查点，并执行第一阶段离线测试。
+如果希望测试集只在全部方案确定后使用，需要先调整该自动测试流程。
+
+第一阶段完成后，针对新检查点重新执行第二阶段门控：
+  python verify_phase2.py --checkpoint results/formal_phase1_seed42/cpi_lstm_phase1_best.pt --output results/formal_phase2/gate
+
+门控通过后，运行第二阶段：
+  python run_phase2.py --initial-checkpoint results/formal_phase1_seed42/cpi_lstm_phase1_best.pt --output results/formal_phase2 --rounds 3 --epochs-per-round 5
+第二阶段包含模型控制的断联轨迹采集、带回放的监督微调、闭环验证选择及最终冻结测试。
+使用新的输出名，以免与此前未完整完成的 results/phase2 混淆。
+当前入口不支持中断后的自动恢复；运行中可查看 status.json、training_history.csv 和日志。
+
+四、可选：重建数据
+使用不同目录，避免覆盖现有数据：
+  python prepare_phase1.py --source data/source_NOAA.csv --output data_rebuilt
+第一阶段训练支持 --data data_rebuilt；第二阶段当前仍固定读取本目录 data/。
+因此仅验证重建时可使用 data_rebuilt，正式两阶段运行应保持 data/ 与初始检查点一致。
+
+五、历史结果说明
+results/phase1_seed42：旧预训练完成 7 轮，最佳第 5 轮。
+results/phase1_lstm_vs_cpi_5ep_seed42：各 5 轮对比。
+results/phase1_pso_cpi_1ep_seed42：小规模 PSO + 最终 1 轮对比。
+results/phase2：此前第二阶段试运行，不能当作新正式训练已完成。
+这些历史结果保留作参考；本次清理没有替你决定正式采用默认 CPI 还是 PSO 参数。
+当前两阶段正式入口默认使用原 CPI 联合损失，不会自动沿用 PSO 权重。
+
+cleanup_manifest.json 记录本次删除的其他 NOAA 目录、文件清单与总字节数。

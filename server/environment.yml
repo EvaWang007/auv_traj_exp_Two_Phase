@@ -1,0 +1,7 @@
+# Minimal environment; then run setup_env.sh to install/verify the GPU runtime.
+name: auv_traj_gpu
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
