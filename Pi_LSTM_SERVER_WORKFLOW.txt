@@ -1,0 +1,144 @@
+Pi_LSTM：服务器训练 → GitHub Release备份 → 本机下载分析
+日期：2026-11-25
+仓库：https://github.com/EvaWang007/auv_traj_exp_Two_Phase
+代码由git pull更新；模型、数据、结果保存在Release附件，必须另行下载。
+仓库为公开仓库，上传的完整备份也公开；不包含GitHub凭据、SSH私钥或虚拟环境目录。
+
+1. 服务器拉取代码
+已保留原项目时：
+cd /root/autodl-tmp/auv_traj_exp_Two_Phase
+git pull --ff-only
+
+新服务器尚无项目时：
+cd /root/autodl-tmp
+git clone https://github.com/EvaWang007/auv_traj_exp_Two_Phase.git
+cd auv_traj_exp_Two_Phase
+
+2. GPU环境
+若仍使用原训练环境，先激活已有环境；.venv-image存在时：
+source .venv-image/bin/activate
+python server/check_runtime.py
+
+若是新PyTorch2.8 / Python3.12 / CUDA12.8镜像，且没有.venv-image：
+bash server/setup_image.sh
+source .venv-image/bin/activate
+python server/check_runtime.py
+注意setup_image.sh结尾提到的run_phase1.sh是旧三模型入口，本次不要执行；使用第4步Pi_LSTM_run.sh。
+
+3. 检查原数据和参考CPI训练结果
+ls -lh data/history.npy data/splits.npz
+ls -lh results/formal_phase1_30ep_seed42/run.json results/formal_phase1_30ep_seed42/scalers.npz
+ls -lh results/formal_phase1_30ep_seed42/selected_checkpoints.json results/formal_phase1_30ep_seed42/cpi_lstm/best.pt
+存在则直接到第4步。不需要重新训练CPI，不要重新拟合scaler。
+
+若原服务器磁盘已丢失，可从已验证的旧Release恢复：
+apt-get update
+apt-get install -y gh
+mkdir -p /root/autodl-tmp/old_training_backup
+gh release download backup-twophase_full_20261124_145728 --repo EvaWang007/auv_traj_exp_Two_Phase --dir /root/autodl-tmp/old_training_backup
+python server/backup_release.py verify --folder /root/autodl-tmp/old_training_backup
+mkdir -p /root/autodl-tmp/Pi_LSTM_restore
+tar -xzf /root/autodl-tmp/old_training_backup/twophase_full_20261124_145728.tar.gz -C /root/autodl-tmp/Pi_LSTM_restore
+恢复只复制旧data和旧训练结果，不用旧代码覆盖新git代码。以下两行仅在目标目录不存在时执行复制：
+if [ ! -e data ]; then cp -a /root/autodl-tmp/Pi_LSTM_restore/auv_traj_exp_Two_Phase/data data; fi
+mkdir -p results
+if [ ! -e results/formal_phase1_30ep_seed42 ]; then cp -a /root/autodl-tmp/Pi_LSTM_restore/auv_traj_exp_Two_Phase/results/formal_phase1_30ep_seed42 results/; fi
+然后重复上面的ls检查。若已有目录但文件不全，先检查缺失原因，训练程序会拒绝不匹配数据。
+
+4. 单独训练Pi_LSTM（默认30轮，seed42）
+nohup bash server/Pi_LSTM_run.sh > Pi_LSTM_launcher.log 2>&1 &
+tail -f Pi_LSTM_launcher.log
+Ctrl+C只退出tail，不会停止后台训练。
+不要重复启动；启动器和Python都具有同目录运行锁。中断后重复同一启动命令可续训。
+监控：
+nvidia-smi
+cat results/Pi_LSTM_30ep_seed42/status.json
+完成标志为日志出现Training complete，并且selected_checkpoint.json显示epochs_completed为30。
+训练期间不要git pull或修改训练源码，避免恢复/比较时的代码签名不一致。
+
+5. 完整冻结对比（训练完成后执行）
+nohup python -u Pi_LSTM_compare.py --data data --reference-run results/formal_phase1_30ep_seed42 --pi-run results/Pi_LSTM_30ep_seed42 --output results/Pi_LSTM_vs_CPI_test --device cpu > Pi_LSTM_compare.log 2>&1 &
+tail -f Pi_LSTM_compare.log
+CPU是默认稳健选项；也可用--device cuda。此阶段不训练任何模型。
+完成后查看：
+cat results/Pi_LSTM_vs_CPI_test/verification.json
+cat results/Pi_LSTM_vs_CPI_test/metrics.csv
+应passed=true、dataset=full_original_held_out_test、smoke_only=false、windows=26000。
+Pi与CPI均使用各自验证集选定检查点，不以测试集重新选轮次。
+首次运行不要把输出路径设为已有目录；重测时用新的输出目录并在备份时传对应--comparison。
+
+6. 打包完整实验
+python -u Pi_LSTM_backup.py
+默认打包到/root/autodl-tmp/auv_backups/Pi_LSTM_full_时间戳.tar.gz。
+脚本会在打包前检查Pi训练完整、完整冻结对比通过、检查点哈希和原训练数据哈希。
+归档结构：
+Pi_LSTM_experiment/
+  Pi_LSTM_run/          Pi的best/final/last权重、优化器/RNG、历史CSV、scaler、配置和导出参数
+  CPI_reference_run/   原正式三模型训练目录，包括CPI权重、scaler和曲线
+  comparison/          完整配对测试的指标CSV、预测NPZ、轨迹图和曲线
+  data/                原训练/验证/测试数据及NOAA源文件，便于重新训练
+  code/                打包时的代码、配置和说明
+不打包整个项目目录，因此不会收集.git、.venv-image、用户目录中的gh登录凭据或SSH私钥。
+若只想备份权重/结果而不重复原数据，可显式加--skip-data；默认不要加，保证这份包自包含原数据。
+
+7. 上传到GitHub Release
+尚未安装gh时：
+apt-get update
+apt-get install -y gh
+若尚未登录或无写权限：
+gh auth login --hostname github.com --git-protocol https --web
+gh auth status
+使用有该仓库写权限的账号（通常EvaWang007）在浏览器授权；不把token/密码写进脚本或发到聊天。
+检查写权限：
+gh api repos/EvaWang007/auv_traj_exp_Two_Phase --jq '.permissions.push'
+应输出true。
+
+AUV_PI_ARCHIVE=$(cat /root/autodl-tmp/auv_backups/Pi_LSTM_latest_archive.txt)
+nohup python -u server/backup_release.py upload --archive "$AUV_PI_ARCHIVE" > /root/autodl-tmp/auv_backups/Pi_LSTM_upload.log 2>&1 &
+tail -f /root/autodl-tmp/auv_backups/Pi_LSTM_upload.log
+保留最终UPLOAD COMPLETE链接和RELEASE_TAG。上传中断时重跑相同命令，已完整上传附件会跳过。
+不要重新打包后用旧tag上传，也不要修改上传中的归档。
+超过2GiB时上传工具自动分片，需预留额外磁盘空间；本机下载全部分片后verify自动合并。
+如果gh不在PATH、认证过期或权限不足，先修复登录；不需要重新训练或重新打包。
+
+8. 本机PowerShell更新代码并下载
+以下在Windows本机执行，不在服务器执行：
+cd "C:\Users\Xinli Wang\auv_traj_exp\auv_exp_NOAA_TwoPhase_train"
+git pull --ff-only
+gh --version
+若本机没有gh，可在Release网页手动下载下面列出的全部附件。
+
+$PiTag = "把服务器输出的RELEASE_TAG填在这里"
+$PiDownload = "D:\AUV_Backup\Pi_LSTM_run1"
+New-Item -ItemType Directory -Force -Path $PiDownload | Out-Null
+gh release download $PiTag --repo EvaWang007/auv_traj_exp_Two_Phase --dir $PiDownload
+python server/backup_release.py verify --folder $PiDownload
+必须下载同一Release的完整tar.gz（或全部part分片）、backup_manifest.json、SHA256SUMS。
+缺少backup_manifest.json就无法verify；git pull不会下载这些附件。
+校验应输出VERIFIED及完整tar.gz文件路径；不能只看到下载文件名就认为备份完整。
+
+9. 解压至项目下独立目录
+$PiAnalysis = "C:\Users\Xinli Wang\auv_traj_exp\auv_exp_NOAA_TwoPhase_train\results\Pi_LSTM_server_run1"
+if (Test-Path -LiteralPath $PiAnalysis) { throw "分析目录已存在，请换一个新目录名" }
+New-Item -ItemType Directory -Path $PiAnalysis | Out-Null
+$PiTar = @(Get-ChildItem -LiteralPath $PiDownload -Filter 'Pi_LSTM_full_*.tar.gz')
+if ($PiTar.Count -ne 1) { throw "下载目录应只有一个完整归档，请检查verify输出" }
+tar -xzf $PiTar[0].FullName -C $PiAnalysis
+解压后从以下路径分析：
+results/Pi_LSTM_server_run1/Pi_LSTM_experiment/Pi_LSTM_run/training_history.csv
+results/Pi_LSTM_server_run1/Pi_LSTM_experiment/Pi_LSTM_run/scalers.npz
+results/Pi_LSTM_server_run1/Pi_LSTM_experiment/Pi_LSTM_run/export/normalization_parameters.csv
+results/Pi_LSTM_server_run1/Pi_LSTM_experiment/comparison/metrics.csv
+results/Pi_LSTM_server_run1/Pi_LSTM_experiment/comparison/validation_curves.png
+results/Pi_LSTM_server_run1/Pi_LSTM_experiment/comparison/trajectory_*.png
+
+10. 在本机复用之前10条大转弯，配对评估新模型
+解压后使用备份内code下的Pi_LSTM_compare.py运行，以匹配原训练代码。
+下面PowerShell命令可直接使用，前提是保留了原large_turns_ten_seed20261125样例：
+$PiBase = "$PiAnalysis\Pi_LSTM_experiment"
+& "E:\Anaconda_envs\envs\auv_traj_exp\python.exe" "$PiBase\code\Pi_LSTM_compare.py" --data "$PiBase\data" --reference-run "$PiBase\CPI_reference_run" --pi-run "$PiBase\Pi_LSTM_run" --examples "C:\Users\Xinli Wang\auv_traj_exp\auv_exp_NOAA_TwoPhase_train\results\imported_20261124_145728\large_turns_ten_seed20261125\predictions_and_inputs.npz" --output "$PiBase\large_turn_comparison" --device cpu
+普通10条样例把large_turns_ten_seed20261125换为new_noaa_ten_seed20261125，并使用另一个output目录。
+
+11. 服务器何时可关闭
+至少确认服务器UPLOAD COMPLETE；建议再等本机下载、verify成功和解压检查完成后关闭。
+完整训练数据始终保留在原备份和新默认完整归档中；不要因上传成功立即删除唯一服务器副本。

@@ -1,0 +1,13 @@
+{
+  "seed": 42,
+  "epochs": 30,
+  "batch_size": 128,
+  "num_workers": 2,
+  "cpu_threads": 4,
+  "gradient_clip": 2.0,
+  "log_every_batches": 100,
+  "precision": "float32",
+  "deterministic": true,
+  "lr": 0.001,
+  "checkpoint_selection": "validation_loss"
+}

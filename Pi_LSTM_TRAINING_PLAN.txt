@@ -1,0 +1,90 @@
+Pi_LSTM：运动学先验＋轨迹位置残差LSTM，第一阶段独立训练方案
+版本日期：2026-11-25
+
+一、实验目的与比较边界
+给LSTM与CPI相同的固定运动学转弯公式和可用先验，再比较直接学习位置修正与显式状态/速度分解的差别。
+Pi_LSTM不是纯数据驱动LSTM，也不是取消积分：固定基础轨迹需要运动学积分；学习到的位置残差直接相加，不再积分。
+不改动原三个模型，不覆盖其数据、权重或结果。本入口仅训练Pi_LSTM。
+当前CPI还使用海流/偏差/速度辅助监督，因此比较结论属于完整方案比较；单独归因结构仍需CPI仅位置监督消融。
+
+二、输入和数据划分
+使用原正式30轮CPI训练所用的同一data目录，代码校验原run.json中全部数据SHA256和形状。
+1000个任务，训练/验证/测试任务数700/100/200，窗口数91000/13000/26000。
+历史history：[N,120,16]，float32；步长0.2秒，120个采样点跨度23.8秒，通常称24秒历史窗口。
+16维依次为：DR相对东西/南北位置、对水速度、加速度、航向sin/cos、历史加速度/转向指令、
+可见定位减DR的二维残差、定位可用标记、距可见定位的秒数、最近定位减DR的二维残差、最近海流估计二维。
+未来plan：[N,80,2]，float32，依次为加速度指令a_cmd和转向角速度omega_cmd（rad/s）。
+额外可用输入：DR_start[N,2]、water_state[N,3]（速度/加速度/航向）、
+last_fix_bias[N,2]、last_fix_current[N,2]、outage_age[N]。
+以上与当前CPI采用的可用输入一致；water_state沿用原项目的当前传感器状态定义，不使用仿真未来状态。
+读取的数据集可能包含标签字段，但Pi_LSTM.forward仅访问上述输入，不使用未来position/current/velocity/bias标签。
+监督标签只使用position[N,80,2]，是真实执行同一候选控制的NOAA海流驱动仿真位置序列。
+
+三、归一化与模型结构
+强制复制并复用参考CPI正式run的scalers.npz，检查selected_checkpoints.json中的SHA256；不重新拟合。
+x=(history-history_mean)/history_std，u=(plan-plan_mean)/plan_std。
+历史编码器LSTM(16,128)，控制编码器LSTM(2,96)，拼接末时刻隐藏状态为224维。
+位置残差头：Linear(224,128)→ReLU→Linear(128,160)→reshape(80,2)。
+输出乘原position_scale恢复米，最后一层权重/偏置初始化为零。
+固定bias_prior=last_fix_bias+outage_age*last_fix_current。
+固定运动学：acc_k=.68*acc_(k-1)+.32*a_cmd_k；speed=clip(speed+.2*acc,.35,3)；theta+=.2*omega_cmd。
+water_velocity=speed*[cos(theta),sin(theta)]。
+base_position=DR_start+bias_prior+cumsum(.2*(water_velocity+last_fix_current))。
+最终position=base_position+learned_position_residual。
+没有可学习海流头、定位偏差头、速度头，也不对位置残差人为裁剪幅值。
+
+四、训练流程
+默认seed42，30epoch，Adam lr0.001，batch128，workers2，CPU线程4，梯度裁剪2.0，float32。
+每轮只用训练集更新，再在完整验证集上冻结推理。
+loss=mean((predicted_position-position)^2)/position_scale^2，无辅助损失、无额外平滑损失。
+按最小验证位置loss选择best.pt，与原CPI的验证loss选择规则对应，但二者loss组成不同，不横向比较loss数值。
+训练过程中不使用测试指标选择权重、超参数或轮数。
+输出last.pt（优化器/RNG/逐轮历史/内嵌best，支持整轮恢复）、best.pt、final.pt、
+training_history.csv、scalers.npz、run.json、status.json、selected_checkpoint.json。
+逐轮CSV包含train/val loss、ADE_m、FDE_m、position_RMSE_m和该轮耗时。
+run.json记录配置、训练数据身份、复用scaler哈希、参考训练签名和相关代码哈希；日志另存pip环境。
+--resume要求代码、配置、数据及scaler一致；若修改实验方案，应使用新输出目录。
+
+五、Ubuntu22.04 / RTX3090服务器启动
+复用原PyTorch2.8/CUDA12.8/Python3.12环境，无新增依赖，先激活原GPU训练环境。
+以下命令在项目根目录执行；默认已有data和results/formal_phase1_30ep_seed42（必须含原检查点和scaler）。
+
+cd /root/autodl-tmp/auv_traj_exp_Two_Phase
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+nohup bash server/Pi_LSTM_run.sh > Pi_LSTM_launcher.log 2>&1 &
+tail -f Pi_LSTM_launcher.log
+
+启动器含flock防止同一输出目录重复启动；Python侧还有运行锁。中断后重新运行同一命令继续。
+如果数据或原正式训练结果放在其他目录，使用：
+export AUV_DATA=/绝对路径/data
+export AUV_REFERENCE_RUN=/绝对路径/formal_phase1_30ep_seed42
+nohup bash server/Pi_LSTM_run.sh results/Pi_LSTM_30ep_seed42 > Pi_LSTM_launcher.log 2>&1 &
+
+六、训练后冻结对比：原完整测试集
+python Pi_LSTM_compare.py --data data --reference-run results/formal_phase1_30ep_seed42 --pi-run results/Pi_LSTM_30ep_seed42 --output results/Pi_LSTM_vs_CPI_test --device cpu
+CPU默认用于稳定的离线测试，可改为--device cuda；不会训练CPI或Pi。
+比较前校验数据、归一化和选定权重哈希；eval/no_grad冻结，前后权重哈希一致；标签污染检查使用1e-6数值容差。
+输出整体及定位缺失分组ADE/FDE/位置RMSE、逐窗口指标、两个模型预测NPZ、10个不同任务的固定样例图、验证曲线和验证记录。
+RMSE=sqrt(mean(||position_error||^2))，是二维距离RMSE，不是逐坐标RMSE。
+样例按任务首次出现顺序选取，不按误差挑选。重复测试需指定新的输出目录，防止覆盖结果。
+
+七、与此前10段常规/大转弯样例做完全配对对比
+在本机或已上传对应样例数据的服务器上，给上述对比命令增加：
+--examples /路径/large_turns_ten_seed20261125/predictions_and_inputs.npz
+同时指定一个新的--output路径，并保留该NPZ旁的verification.json。
+常规样例对应new_noaa_ten_seed20261125/predictions_and_inputs.npz。
+此模式复用同一历史、控制、真实轨迹，只比较Pi与CPI，不重新随机生成任务。
+高机动样例是原训练候选控制分布外压力测试；不能将10段样例均值当作完整测试性能。
+已有验证/测试样例已被查看；本次新增模型属于后续对照实验，最终论文结论建议另预留未查看的独立任务与至少3个种子。
+
+八、本地现有备份路径下的正式训练命令（默认不会自动执行）
+python Pi_LSTM_train.py --data results/imported_20261124_145728/snapshot/data --reference-run results/imported_20261124_145728/snapshot/results/formal_phase1_30ep_seed42 --output results/Pi_LSTM_30ep_seed42 --device cuda
+本机无CUDA时可改cpu，但推荐服务器GPU执行。
+小规模流程验证加--smoke，使用独立输出目录，例如results/Pi_LSTM_smoke；仅64训练窗口/64验证窗口/1轮，不代表正式精度。
+测试：python -m unittest discover -s server -p Pi_LSTM_test.py
+
+九、实验解释
+保持原候选控制数据不变训练这一版本，先检验加入运动学先验的效果；不要只给Pi扩充大转弯训练数据。
+若后续增加高机动训练任务，应给所有比较模型使用同一新版数据重新训练，并重新建立scaler与独立测试集。
+Pi优于原LSTM说明固定运动先验有贡献；完整CPI优于Pi支持显式分解与辅助监督组合有贡献。
+无法预先保证任何模型领先；保留全部结果，包括Pi表现更好的场景。
